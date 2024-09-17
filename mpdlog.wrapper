@@ -1,0 +1,7 @@
+#!/bin/bash
+
+# Point to the actual script using the symlink
+SCRIPT_PATH="/home/bvargo/bin/gits/mpdignore/mpdlog"
+
+# Execute the actual script
+"$SCRIPT_PATH" "$@"

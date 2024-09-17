@@ -1,0 +1,318 @@
+#!/bin/bash
+# nb: the swp file that editscript relies on is provided by nano
+./mpdlog --long
+exit
+editscript(){
+  local scriptpath script path swp; scriptpath=$(realpath "$0" 2>/dev/null); script="${scriptpath##*/}"; path="${scriptpath%/*}"; swp="$path/.$script.swp"
+     [[ ! -e "$swp" ]] && printf "\n\n%s\n\n" "$swp" && (/usr/bin/nano "$scriptpath") && exit
+     printf "\n%s is already being edited.\n%s exists; try fg or look in another window.\n" "$scriptpath" "$swp"; exit ;}
+
+pause(){ read -rp "$*" < /dev/tty; }
+
+
+ampm() {
+    local ts="$1"
+#    date -d "$ts" "+%b %d %I:%M %P"      # Apr 20 04:20 pm
+    date -d "$ts" "+%b %d %l:%M %P"       # Apr 20 4:20 pm
+}
+
+
+metadata-json() {
+
+    metadata=$(mpc current -f '{"name":"%name%","artist":"%artist%","album":"%album%","albumartist":"%albumartist%","comment":"%comment%","composer":"%composer%","date":"%date%","originaldate":"%originaldate%","disc":"%disc%","genre":"%genre%","performer":"%performer%","title":"%title%","track":"%track%","time":"%time%","file":"%file%"}')
+
+    status="$(mpc status '{"state":"%state%","volume":"%volume%","repeat":"%repeat%","random":"%random%","single":"%single%","consume":"%consume%"}')"
+
+    echo "{\"metadata\": $metadata, \"status\": $status}"
+
+}
+
+printmpcjson() {
+echo -ne "${name:+Name: $name\n}"
+echo -ne "${artist:+Artist: $artist\n}"
+echo -ne "${album:+Album: $album\n}"
+echo -ne "${albumartist:+Album Artist: $albumartist\n}"
+echo -ne "${comment:+Comment: $comment\n}"
+echo -ne "${composer:+Composer: $composer\n}"
+echo -ne "${date:+Date: $date\n}"
+echo -ne "${originaldate:+Original Date: $originaldate\n}"
+echo -ne "${disc:+Disc: $disc\n}"
+echo -ne "${genre:+Genre: $genre\n}"
+echo -ne "${performer:+Performer: $performer\n}"
+echo -ne "${title:+Title: $title\n}"
+echo -ne "${track:+Track: $track\n}"
+echo -ne "${time:+Time: $time\n}"
+echo -ne "${file:+File: $file\n}"
+
+echo -ne "${state:+State: $state\n}"
+echo -ne "${volume:+Volume: $volume\n}"
+echo -ne "${repeat:+Repeat: $repeat\n}"
+echo -ne "${random:+Random: $random\n}"
+echo -ne "${single:+Single: $single\n}"
+echo -ne "${consume:+Consume: $consume\n}"
+
+}
+
+[[ "$1" == @(edit|e|-e) ]] && editscript
+[[ "$1" == "--long" ]] && long=true
+
+shopt -s extglob
+songdir=\/library\/music\/$(dirname "$(\mpc current -f %file%)")
+cover=( "${songdir}/"@(c|C)over.@(png|jpg|gif) )
+shopt -u extglob
+
+echo "Content-type: text/html; charset=UTF-8"
+echo ""
+echo "<html><head><title>mpd played</title>"
+
+# Add the viewport meta tag for responsive design
+echo "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+
+# Include Bootstrap CSS for responsive design
+echo "<link rel='stylesheet' href='https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css'>"
+
+mpcjson="$(metadata-json)"
+# this also works but is a security issue
+#eval "$(jq -r '.metadata | to_entries[] | "\(.key)=\(.value | @sh)"' <<< "$mpcjson")"
+#eval "$(jq -r '.status | to_entries[] | "\(.key)=\(.value | @sh)"' <<< "$mpcjson")"
+
+while IFS= read -r line; do
+    IFS='=' read -r key value <<< "$line"
+    declare "$key=$value"
+done < <(jq -r '.metadata | to_entries[] | "\(.key)=\(.value)"' <<< "$mpcjson")
+
+while IFS= read -r line; do
+    IFS='=' read -r key value <<< "$line"
+    declare "$key=$value"
+done < <(jq -r '.status | to_entries[] | "\(.key)=\(.value)"' <<< "$mpcjson")
+#done < <(jq -r '.status | to_entries[] | "\(.key)=\(.value | @sh)"' <<< "$mpcjson")
+    [[ "$repeat" = on ]] && repeat="⟳" || unset repeat
+    [[ "$consume" = on ]] && consume="✅" || consume="❌"
+    [[ "$random" = on ]] && random="✅" || random="❌"
+    [[ "$single" = on ]] && single="✅" || unset single
+
+if [[ "$state" = "playing" ]]; then
+  echo "<meta http-equiv='refresh' content='30'>"
+fi
+
+
+echo "<style>"
+echo "body { font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; padding: 20px; }"
+echo "h1 { color: #444; }"
+echo "pre { background-color: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; line-height: 1.5; }"
+echo "h2, h3 { margin: 0; padding: 0; }"
+echo ".timestamp { color: #007bff; }"
+echo ".song { color: #28a745; }"
+echo ".artist { color: #dc3545; }"
+echo ".album { color: #6c757d; }"
+echo ".watermark { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: url('$cover'); opacity: 0.1; pointer-events: none; }"
+echo ".tab-stops { tab-size: 8; -moz-tab-size: 8; -o-tab-size: 8; }"
+echo "</style>"
+echo "</head><body>"
+
+# Add watermark div
+#echo "<div class='watermark'></div>"
+echo "<div class='watermark' style='background-image: url(\"$cover\");'></div>"
+
+echo "<h1>mpd</h1><hr>"
+#echo "<h3>currently playing:</h3>"
+echo "<strong class='timestamp'>$(mpc status "\[%state%\] ##%songpos%#/%length%<br>elapsed %currenttime%/%totaltime% (%percenttime%)")</span><br>"
+
+echo "<span class='song'><strong>$(mpc current -f "[%title%]|[%file%]")</strong></span><br>"
+echo "<span class='artist'><strong>$(mpc current -f "%artist%")</span><br>"
+
+year="${originaldate:-${date}}"; year="${year%%-*}" # this can be done in the echo below too
+
+echo "<span class='album'><strong> ${album% (mp3)} ${year:+(${year})} </strong></span><br>" #${date:+($date)}
+
+echo "<span class='album'>volume: $volume&nbsp </span><span class='song'>${repeat:+$repeat}$nbsp</span><span class='album'> ${single:+single: $single}<br>${random:+random: $random}&nbsp&nbsp${consume:+consume: $consume}<br>  </span><hr>"
+#echo "<pre>"
+
+long=true
+
+tail1=500; tail2=70
+if "${long}"; then tail1=1000 && tail2=200; fi
+
+while read -r i; do
+    timestamp="${i%% : *}"; timestamp="$(ampm "$timestamp")"
+    action="${i#*player: }"; action="${action%% *}"
+    songpath="${i%\"*}"; songpath="${songpath#*\"}"
+    song="$(basename "$songpath")"; song="${song%.*}"
+
+    if [[ "$song" =~ .+\ --\ (([[:digit:]]{1,3}(-)?)?[[:digit:]]{1,3})\ -\ .+ ]]; then
+       artist="${song%% -- *}"
+       song="${song#* - }"
+    elif [[ "$song" =~ (([[:digit:]]{1,3}(-)?)?[[:digit:]]{1,3})\ -\ .+\ --\ .+ ]]; then
+       artist="${song%% -- *}"; artist="${artist#* - }"
+       song="${song#* -- }"
+    fi
+
+    songdir="$(dirname "$songpath")"
+#    artist="${songdir%% -- *}"; artist="${artist##*\/}"
+    album="${songdir#* -- }"; album="${album##*\/}"; album="${album% (mp3)}"
+    [[ "$action" = @(skipped|ignored) ]] && echo "<s>"
+    [[ "$action" = ignored ]] && echo "<i>"
+    echo "<strong class='timestamp'>@ $timestamp, $action</span><br>"
+    echo "<span class='song'>$song</span></strong><br>"
+    echo "<span class='artist'>$artist</span><br>"
+    echo "<span class='album'>$album</span><br><br>"
+    [[ "$action" = @(skipped|ignored) ]] && echo "</s></i>"
+    echo
+done < <(tail -n "${tail1}" /var/log/mpd/mpd.log | grep player | tail -n "${tail2}" | tac)
+
+
+
+
+
+#echo "</pre>"
+echo "</body></html>"
+exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#!/bin/bash
+ampm() {
+    local timestamp="$1"
+    local date="${timestamp:0:6}"
+    local hour="${timestamp:7:2}"
+    local minute="${timestamp:10:11}"
+
+    if ((hour >= 12)); then
+        if ((hour > 12)); then
+            hour=$((hour - 12))
+        fi
+        period="pm"
+    else
+        if ((hour == 0)); then
+            hour=12
+        fi
+        period="am"
+    fi
+
+    printf "%02d:%02d %s" "$hour" "$minute" "$period"
+}
+
+echo "Content-type: text/html; charset=UTF-8"
+echo ""
+echo "<html><head><title>mpd played...</title>"
+echo "<style>"
+echo "body { font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; padding: 20px; }"
+echo "h1 { color: #444; }"
+echo "pre { background-color: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; line-height: 1.5; }"
+echo "h2, h3 { margin: 0; padding: 0; }"
+echo ".timestamp { color: #007bff; }"  # Blue color for timestamp
+echo ".song { color: #28a745; }"       # Green color for song
+echo ".artist { color: #dc3545; }"     # Red color for artist
+echo ".album { color: #6c757d; }"      # Gray color for album
+echo "</style>"
+echo "</head><body>"
+echo "<h1>Recent MPD Player Logs</h1>"
+echo "<pre>"
+while read -r i; do
+    timestamp="${i%% : *}"; timestamp="$(ampm "$timestamp")"
+    action="${i#*player: }"; action="${action%% *}"
+    songpath="${i%\"*}"; songpath="${songpath#*\"}"
+    song="$(basename "$songpath")"; song="${song%.*}"
+    if [[ "$song" =~ .+\ --\ (([[:digit:]]{1,3}(-)?)?[[:digit:]]{1,3})\ -\ .+ ]]; then song="${song#* - }"
+    elif [[ "$song" =~ (([[:digit:]]{1,3}(-)?)?[[:digit:]]{1,3})\ -\ .+\ --\ .+ ]]; then song="${song#* -- }"
+    fi
+    songdir="$(dirname "$songpath")"
+    artist="${songdir% -- *}"; artist="${artist##*\/}"
+    album="${songdir#* -- }"; album="${album##*\/}"
+    echo "<strong class='timestamp'>@ $timestamp; played <span class='song'>$song</span></strong>"
+    echo "<span class='artist'>$artist</span>"  # Apply colors to timestamp, song, and artist
+    echo "<span class='album'>$album</span>"    # Apply color to album
+    echo
+done < <(tail -n 500 /var/log/mpd/mpd.log | grep player | tail -n 25 | tac)
+echo "</pre>"
+echo "</body></html>"
+exit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+echo "Content-type: text/html"
+echo ""
+echo "<html><head><title>MPD Log Output</title>"
+echo "<style>"
+echo "body { font-family: Arial, sans-serif; background-color: #f4f4f4; color: #333; padding: 20px; }"
+echo "h1 { color: #444; }"
+echo "pre { background-color: #fff; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 16px; line-height: 1.5; }"  # Reduced font size and line height
+echo "h2, h3 { margin: 0; padding: 0; }"
+echo "</style>"
+echo "</head><body>"
+echo "<h1>Recent MPD Player Logs</h1>"
+echo "<pre>"
+while read -r i; do
+    timestamp="${i%% : *}"; timestamp="$(ampm "$timestamp")"
+    action="${i#*player: }"; action="${action%% *}"
+    songpath="${i%\"*}"; songpath="${songpath#*\"}"
+    song="$(basename "$songpath")"; song="${song%.*}"
+    if [[ "$song" =~ .+\ --\ (([[:digit:]]{1,3}(-)?)?[[:digit:]]{1,3})\ -\ .+ ]]; then song="${song#* - }"
+#.+\ --\ [[:digit:]]{1,3}\ -\ .+\..+ ]]; then song="${song#* -- }"
+    elif [[ "$song" =~ (([[:digit:]]{1,3}(-)?)?[[:digit:]]{1,3})\ -\ .+\ --\ .+ ]]; then song="${song#* -- }"
+    fi
+    songdir="$(dirname "$songpath")"
+    artist="${songdir% -- *}"; artist="${artist##*\/}"
+    album="${songdir#* -- }"; album="${album##*\/}"
+    echo "<strong>@ $timestamp; played $song"
+    echo "  $artist</strong>"  # Bold text for timestamp, song, and artist
+    echo "  $album"  # Normal text for album
+    echo
+done < <(tail -n 500 /var/log/mpd/mpd.log | grep player | tail -n 25 | tac)
+echo "</pre>"
+echo "</body></html>"
+exit
+
